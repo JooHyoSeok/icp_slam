@@ -12,7 +12,9 @@ class PoseGraphManager:
         self.const_cov = np.array([0.5, 0.5, 0.5, 0.1, 0.1, 0.1])
         self.odom_cov = gtsam.noiseModel.Diagonal.Sigmas(self.const_cov)
         self.loop_cov = gtsam.noiseModel.Diagonal.Sigmas(self.const_cov)
-
+        self.robust_kernel = gtsam.noiseModel.Robust.Create(
+            gtsam.noiseModel.mEstimator.Huber.Create(1.345), self.odom_cov)
+        
         self.graph_factors = gtsam.NonlinearFactorGraph()
         self.graph_initials = gtsam.Values()
 
@@ -35,7 +37,7 @@ class PoseGraphManager:
         self.graph_factors.add(gtsam.PriorFactorPose3(
                                                 gtsam.symbol('x', self.curr_node_idx), 
                                                 gtsam.Pose3(self.curr_se3), 
-                                                self.prior_cov))
+                                                self.robust_kernel))
 
     def addOdometryFactor(self, odom_transform):
 
@@ -44,7 +46,8 @@ class PoseGraphManager:
                                                 gtsam.symbol('x', self.prev_node_idx), 
                                                 gtsam.symbol('x', self.curr_node_idx), 
                                                 gtsam.Pose3(odom_transform), 
-                                                self.odom_cov))
+                                                self.robust_kernel))
+        
 
     def addLoopFactor(self, loop_transform, loop_idx):
 
@@ -52,17 +55,13 @@ class PoseGraphManager:
                                         gtsam.symbol('x', loop_idx), 
                                         gtsam.symbol('x', self.curr_node_idx), 
                                         gtsam.Pose3(loop_transform), 
-                                        self.odom_cov))
+                                        self.robust_kernel))
 
     def optimizePoseGraph(self):
 
         self.opt = gtsam.LevenbergMarquardtOptimizer(self.graph_factors, self.graph_initials, self.opt_param)
         self.graph_optimized = self.opt.optimize()
-
-        # status = self.opt.optimize(self.graph_factors, self.graph_initials, self.graph_optimized)
-        # if status != minisam.NonlinearOptimizationStatus.SUCCESS:
-            # print("optimization error: ", status)
-
+        
         # correct current pose 
         pose_trans, pose_rot = getGraphNodePose(self.graph_optimized, self.curr_node_idx)
         self.curr_se3[:3, :3] = pose_rot
